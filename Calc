@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Calculadora TRI - Múltiplos Alunos (v9 - com Calibração)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --brand:#005f73;
+      --brand-2:#0a9396;
+      --bg:#f4f7f6;
+      --ink:#333;
+    }
+    *{box-sizing:border-box}
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg);
+      color: var(--ink);
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 1000px;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    h2, h3 {
+      color: var(--brand);
+      border-bottom: 2px solid var(--brand);
+      padding-bottom: 10px;
+      margin-top: 0;
+    }
+    .controls{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:16px;
+      margin: 6px 0 12px;
+    }
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    label{font-weight:600; font-size:14px}
+    input[type="file"], input[type="number"], input[type="text"], button, select {
+      padding: 12px 14px;
+      border: 1px solid #E6E6E6;
+      border-radius: 10px;
+      font-size: 15px;
+    }
+    input:disabled{ background:#f1f1f1; color:#999 }
+    .stack{display:flex; gap:10px; flex-wrap:wrap}
+    .btn {
+      border: none;
+      background-color: var(--brand-2);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter .2s ease;
+    }
+    .btn:hover { filter:brightness(.9) }
+    .muted{color:#666; font-size:14px}
+    .calibration-box {
+        grid-column: 1 / -1;
+        border: 1px solid #dde;
+        padding: 12px;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+    th, td {
+      border: 1px solid #eef0f2;
+      padding: 12px;
+      text-align: center;
+    }
+    th {
+      background-color: var(--brand);
+      color: white;
+      position: sticky;
+      top: 0;
+    }
+    tbody tr:nth-child(even) { background-color: #f8f9fa }
+    tbody tr:hover { background-color: #eef7f8 }
+    .pill{
+      display:inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background:#eef7f8;
+      border:1px solid #d5eef0;
+      color:#0a5560;
+      margin-left:8px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h2>Calculadora de Nota TRI para Múltiplos Alunos <span class="pill">v9 com Calibração</span></h2>
+    <p>Carregue uma planilha <strong>.xlsx</strong> com as colunas <code>a</code>, <code>b</code>, <code>c</code> e, para cada aluno, uma coluna de respostas (1 acerto, 0 erro). Linhas sem <code>a,b,c</code> numéricos serão ignoradas.</p>
+
+    <div class="controls">
+      <div class="field">
+        <label for="arquivo">Arquivo (.xlsx)</label>
+        <input type="file" id="arquivo" accept=".xlsx" />
+      </div>
+      <div class="field">
+        <label for="grid">Grade de θ (mín, máx, passo)</label>
+        <div class="stack">
+          <input type="number" id="thetaMin" step="0.1" value="-4" style="width:33%">
+          <input type="number" id="thetaMax" step="0.1" value="4" style="width:33%">
+          <input type="number" id="thetaStep" step="0.1" value="0.1" style="width:33%">
+        </div>
+      </div>
+      <div class="field">
+        <label for="D">Constante logística D</label>
+        <select id="D">
+          <option value="1.7" selected>1.7 (Padrão IRT/INEP)</option>
+          <option value="1">1.0 (logística simples)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Transformação linear (nota = B + A·θ)</label>
+        <div class="stack">
+          <input type="number" id="A" step="0.01" value="100" title="A (escala)">
+          <input type="number" id="B" step="0.1" value="500" title="B (centro)">
+        </div>
+      </div>
+      
+      <div class="field calibration-box">
+        <label for="calibrarNotas">
+          <input type="checkbox" id="calibrarNotas" style="vertical-align: middle;">
+          <span style="vertical-align: middle;">Calibrar A e B com base na nota mínima e máxima real</span>
+        </label>
+        <div id="calibracaoInputs" class="stack" style="margin-top:8px; display:none;">
+          <input type="number" id="notaMinimaReal" placeholder="Nota Mínima Real">
+          <input type="number" id="notaMaximaReal" placeholder="Nota Máxima Real">
+        </div>
+        <span class="muted">Isso substituirá os valores de A e B acima, usando as proficiências (θ) min e max calculadas dos seus alunos.</span>
+      </div>
+    </div>
+
+    <div class="stack">
+      <button class="btn" id="processar">Processar</button>
+      <button class="btn" id="exportar" style="display:none;">Exportar Resultados (.xlsx)</button>
+    </div>
+
+    <div id="resumo" class="muted" style="margin-top:8px"></div>
+
+    <div id="resultados">
+      <h3>Resultados por Aluno</h3>
+      <table id="resultadosAlunos">
+        <thead>
+          <tr>
+            <th>Aluno</th>
+            <th>Proficiência (θ)</th>
+            <th>Total de Acertos</th>
+            <th>Nota (B + A·θ)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let resultadosFinaisParaExportar = [];
+
+    function clamp01(x){ return Math.min(1-1e-12, Math.max(1e-12, x)); }
+
+    function calcularProbabilidade(theta, a, b, c, D){
+      const expo = -D * a * (theta - b);
+      const logistic = 1 / (1 + Math.exp(expo));
+      return clamp01(c + (1 - c) * logistic);
+    }
+
+    function logVerossimilhanca(theta, itens, respostas, D){
+      let soma = 0;
+      for (let i = 0; i < itens.length; i++) {
+        const p = calcularProbabilidade(theta, itens[i].a, itens[i].b, itens[i].c, D);
+        soma += (respostas[i] === 1 ? Math.log(p) : Math.log(1 - p));
+      }
+      return soma;
+    }
+
+    function densidadeNormalPadraoLog(theta){
+      return -0.5 * (Math.log(2 * Math.PI) + theta*theta);
+    }
+
+    function estimarThetaEAP(itens, respostas, thetaMin, thetaMax, thetaStep, D){
+      const nSteps = Math.floor((thetaMax - thetaMin) / thetaStep + 0.5);
+      const thetas = new Array(nSteps + 1);
+      const logPost = new Array(nSteps + 1);
+
+      let maxLogPost = -Infinity;
+      for(let k=0; k<=nSteps; k++){
+        const theta = thetaMin + k * thetaStep;
+        thetas[k] = theta;
+        const lp = logVerossimilhanca(theta, itens, respostas, D) + densidadeNormalPadraoLog(theta);
+        logPost[k] = lp;
+        if (lp > maxLogPost) maxLogPost = lp;
+      }
+      
+      let num = 0, den = 0;
+      for(let k=0; k<logPost.length; k++){
+        const w = Math.exp(logPost[k] - maxLogPost);
+        num += thetas[k] * w;
+        den += w;
+      }
+      return den > 0 ? num / den : 0;
+    }
+
+    function conversaoThetaParaNota(theta, A, B){
+      return B + A * theta;
+    }
+
+    function parseDecimal(value){
+      if (value == null) return NaN;
+      return parseFloat(String(value).replace(',', '.'));
+    }
+
+    function lerPlanilhaPrimeiraAba(file){
+      return file.arrayBuffer().then((data) => {
+        const workbook = XLSX.read(data);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(sheet);
+      });
+    }
+
+    function extrairItensELinhasValidas(json){
+      const linhas = json.map(row => {
+        const a = parseDecimal(row.a);
+        const b = parseDecimal(row.b);
+        const c = parseDecimal(row.c);
+        return { ...row, a, b, c, isValid: Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) };
+      });
+      const validas = linhas.filter(r => r.isValid);
+      const itens = validas.map(r => ({a:r.a, b:r.b, c:r.c}));
+      return {validas, itens};
+    }
+
+    function detectarColunasAlunos(validas){
+      const baseKeys = new Set(['a','b','c','isvalid']);
+      return Object.keys(validas[0] || {})
+        .filter(k => !baseKeys.has(k.toLowerCase().trim()));
+    }
+
+    async function processarArquivo(){
+      const arquivo = document.getElementById('arquivo').files[0];
+      if (!arquivo){ alert('Selecione um arquivo .xlsx'); return; }
+
+      const thetaMin = parseFloat(document.getElementById('thetaMin').value);
+      const thetaMax = parseFloat(document.getElementById('thetaMax').value);
+      const thetaStep = parseFloat(document.getElementById('thetaStep').value);
+      const D = parseFloat(document.getElementById('D').value);
+      let A = parseFloat(document.getElementById('A').value);
+      let B = parseFloat(document.getElementById('B').value);
+      
+      if (!(thetaMax > thetaMin) || !(thetaStep > 0)){ alert('Verifique a grade de θ.'); return; }
+
+      try{
+        const json = await lerPlanilhaPrimeiraAba(arquivo);
+        const {validas, itens} = extrairItensELinhasValidas(json);
+        if (validas.length === 0){ alert("Nenhuma linha válida encontrada."); return; }
+        
+        const colunasAlunos = detectarColunasAlunos(validas);
+        if (colunasAlunos.length === 0){ alert('Não foram encontradas colunas de alunos.'); return; }
+
+        const resultados = [];
+        for (const aluno of colunasAlunos){
+          const respostas = validas.map(r => (parseInt(r[aluno]) === 1 ? 1 : 0));
+          const theta = estimarThetaEAP(itens, respostas, thetaMin, thetaMax, thetaStep, D);
+          const acertos = respostas.reduce((s, x) => s + x, 0);
+          resultados.push({nome: aluno, theta, acertos});
+        }
+        
+        let resumoCalibracao = "";
+        const calibrar = document.getElementById('calibrarNotas').checked;
+        if(calibrar){
+            const notaMinReal = parseFloat(document.getElementById('notaMinimaReal').value);
+            const notaMaxReal = parseFloat(document.getElementById('notaMaximaReal').value);
+            
+            if(isNaN(notaMinReal) || isNaN(notaMaxReal) || notaMaxReal <= notaMinReal){
+                alert("Para calibrar, insira valores numéricos válidos para Nota Mínima e Máxima Real, com a máxima sendo maior que a mínima.");
+                return;
+            }
+
+            const thetasCalculados = resultados.map(r => r.theta);
+            const thetaMinCalculado = Math.min(...thetasCalculados);
+            const thetaMaxCalculado = Math.max(...thetasCalculados);
+            
+            if(thetaMaxCalculado > thetaMinCalculado){
+                A = (notaMaxReal - notaMinReal) / (thetaMaxCalculado - thetaMinCalculado);
+                B = notaMinReal - A * thetaMinCalculado;
+                
+                // Atualiza a UI para refletir os valores calculados
+                document.getElementById('A').value = A.toFixed(2);
+                document.getElementById('B').value = B.toFixed(2);
+                resumoCalibracao = ` | A e B calibrados: A=${A.toFixed(2)}, B=${B.toFixed(2)}`;
+            } else {
+                alert("Não foi possível calibrar: todos os alunos tiveram a mesma proficiência. Usando valores manuais de A e B.");
+            }
+        }
+        
+        // Calcula a nota final para todos e adiciona ao objeto
+        for(const r of resultados){
+          r.nota = conversaoThetaParaNota(r.theta, A, B);
+        }
+
+        resultados.sort((a,b) => b.nota - a.nota);
+
+        const corpo = document.querySelector('#resultadosAlunos tbody');
+        corpo.innerHTML = '';
+        resultadosFinaisParaExportar = [];
+
+        for (const r of resultados){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${r.nome}</td>
+            <td>${r.theta.toFixed(4)}</td>
+            <td>${r.acertos} de ${itens.length}</td>
+            <td><strong>${r.nota.toFixed(2)}</strong></td>
+          `;
+          corpo.appendChild(tr);
+
+          resultadosFinaisParaExportar.push({
+            'Aluno': r.nome,
+            'Proficiência (θ)': r.theta.toFixed(4),
+            'Total de Acertos': `${r.acertos} de ${itens.length}`,
+            'Nota (B + A·θ)': r.nota.toFixed(2)
+          });
+        }
+
+        document.getElementById('resumo').textContent =
+          `Itens válidos: ${itens.length} | Alunos: ${colunasAlunos.length} | D=${D} | Nota = ${B.toFixed(2)} + ${A.toFixed(2)}·θ | Grade θ: [${thetaMin}, ${thetaMax}] passo ${thetaStep}${resumoCalibracao}`;
+
+        document.getElementById('exportar').style.display = 'inline-block';
+
+      }catch(err){
+        console.error(err);
+        alert('Erro ao processar: ' + err.message);
+      }
+    }
+
+    function exportarExcel(){
+      if (resultadosFinaisParaExportar.length === 0) return;
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(resultadosFinaisParaExportar);
+      XLSX.utils.book_append_sheet(wb, ws, 'Resultados TRI');
+      XLSX.writeFile(wb, 'resultados_TRI_alunos.xlsx');
+    }
+
+    // Eventos
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('processar').addEventListener('click', processarArquivo);
+      document.getElementById('exportar').addEventListener('click', exportarExcel);
+      
+      // Lógica para a nova caixa de calibração
+      const chkCalibrar = document.getElementById('calibrarNotas');
+      const divCalibracao = document.getElementById('calibracaoInputs');
+      const inputA = document.getElementById('A');
+      const inputB = document.getElementById('B');
+      
+      chkCalibrar.addEventListener('change', (e) => {
+        const habilitarCalibracao = e.target.checked;
+        divCalibracao.style.display = habilitarCalibracao ? 'flex' : 'none';
+        inputA.disabled = habilitarCalibracao;
+        inputB.disabled = habilitarCalibracao;
+      });
+    });
+  </script>
+</body>
+</html>
